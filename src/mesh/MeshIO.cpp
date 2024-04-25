@@ -491,6 +491,7 @@ void MeshIO::normalize(Model& model)
 {
 	// compute center of mass
 	Vector cm;
+	cm.setZero();
 	int nVertices = 0;
 	for (int i = 0; i < model.size(); i++) {
 		for (VertexCIter v = model[i].vertices.begin(); v != model[i].vertices.end(); v++) {
@@ -667,12 +668,12 @@ void MeshIO::collectModelUvs(Model& model, bool normalizeUvs,
 	int nUvs = 0;
 	for (int i = 0; i < model.size(); i++) {
 		// compute uv radius and shift
-		Vector minExtent(modelMinBounds.x, modelMinBounds.y);
-		double dx = modelMaxBounds.x - minExtent.x;
-		double dy = modelMaxBounds.y - minExtent.y;
+		Vector minExtent(modelMinBounds[0], modelMinBounds[1], 0.);
+		double dx = modelMaxBounds[0] - minExtent[0];
+		double dy = modelMaxBounds[1] - minExtent[1];
 		double extent = std::max(dx, dy);
-		minExtent.x -= (extent - dx)/2.0;
-		minExtent.y -= (extent - dy)/2.0;
+		minExtent[0] -= (extent - dx)/2.0;
+		minExtent[1] -= (extent - dy)/2.0;
 
 		// compute sphere radius if component has been mapped to a sphere
 		double sphereRadius = 1.0;
@@ -694,15 +695,15 @@ void MeshIO::collectModelUvs(Model& model, bool normalizeUvs,
 				Vector uv = v->wedge()->uv;
 				if (isSurfaceMappedToSphere[i] == 1) {
 					uv /= sphereRadius;
-					uv.x = 0.5 + atan2(uv.z, uv.x)/(2*M_PI);
-					uv.y = 0.5 - asin(uv.y)/M_PI;
+					uv[0] = 0.5 + atan2(uv[2], uv[0])/(2*M_PI);
+					uv[1] = 0.5 - asin(uv[1])/M_PI;
 
 				} else {
 					uv *= model[i].radius*lengthRatio;
 				}
 
 				uv -= originalUvIslandCenters[i];
-				if (isUvIslandFlipped[i] == 1) uv = Vector(-uv.y, uv.x);
+				if (isUvIslandFlipped[i] == 1) uv = Vector(-uv[1], uv[0], 0.0);
 				uv += newUvIslandCenters[i];
 				uv -= minExtent;
 				if (normalizeUvs) uv /= extent;
@@ -724,15 +725,15 @@ void MeshIO::collectModelUvs(Model& model, bool normalizeUvs,
 			Vector uv = w->uv;
 			if (isSurfaceMappedToSphere[i] == 1) {
 				uv /= sphereRadius;
-				uv.x = 0.5 + atan2(uv.z, uv.x)/(2*M_PI);
-				uv.y = 0.5 - asin(uv.y)/M_PI;
+				uv[0] = 0.5 + atan2(uv[2], uv[0])/(2*M_PI);
+				uv[1] = 0.5 - asin(uv[1])/M_PI;
 
 			} else {
 				uv *= model[i].radius*lengthRatio;
 			}
 
 			uv -= originalUvIslandCenters[i];
-			if (isUvIslandFlipped[i] == 1) uv = Vector(-uv.y, uv.x);
+			if (isUvIslandFlipped[i] == 1) uv = Vector(-uv[1], uv[0], 0.0);
 			uv += newUvIslandCenters[i];
 			uv -= minExtent;
 			if (normalizeUvs) uv /= extent;
@@ -807,21 +808,21 @@ bool MeshIO::writeOBJ(const std::string& fileName, bool writeOnlyUvs,
 	if (!writeOnlyUvs) {
 		for (int i = 0; i < (int)positions.size(); i++) {
 			const Vector& p = positions[i];
-			writeString(out, "v " + std::to_string(p.x) + " " +
-									std::to_string(p.y) + " " +
-									std::to_string(p.z) + "\n");
+			writeString(out, "v " + std::to_string(p[0]) + " " +
+									std::to_string(p[1]) + " " +
+									std::to_string(p[2]) + "\n");
 		}
 	}
 
 	for (int i = 0; i < (int)uvs.size(); i++) {
 		const Vector& uv = uvs[i];
 		if (writeOnlyUvs) {
-			writeString(out, "v " + std::to_string(uv.x) + " " +
-									std::to_string(uv.y) + " 0.0\n");
+			writeString(out, "v " + std::to_string(uv[0]) + " " +
+									std::to_string(uv[1]) + " 0.0\n");
 
 		} else {
-			writeString(out, "vt " + std::to_string(uv.x) + " " +
-									 std::to_string(uv.y) + "\n");
+			writeString(out, "vt " + std::to_string(uv[0]) + " " +
+									 std::to_string(uv[1]) + "\n");
 		}
 	}
 

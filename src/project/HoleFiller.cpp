@@ -72,7 +72,7 @@ void HoleFiller::fill(const std::vector<HalfEdgeIter>& boundaryHalfEdges, Mesh& 
 
     // insert new vertex at the center of the hole
     VertexIter v = mesh.vertices.emplace(mesh.vertices.end(), Vertex(&mesh));
-    v->position = Vector();
+    v->position = Vector(0.0, 0.0, 0.0);
     v->index = nVertices;
 
     // insert new halfedges, edges and faces

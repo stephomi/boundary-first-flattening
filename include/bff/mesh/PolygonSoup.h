@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <iostream>
 #include <cmath>
-#include "bff/linear-algebra/Vector.h"
+#include "bff/linear-algebra/Common2.h"
 
 namespace bff {
 

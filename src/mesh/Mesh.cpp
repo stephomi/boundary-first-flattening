@@ -74,12 +74,12 @@ double Mesh::diameter() const
 	for (VertexCIter v = vertices.begin(); v != vertices.end(); v++) {
 		const Vector& p = v->position;
 
-		minBounds.x = std::min(p.x, minBounds.x);
-		minBounds.y = std::min(p.y, minBounds.y);
-		minBounds.z = std::min(p.z, minBounds.z);
-		maxBounds.x = std::max(p.x, maxBounds.x);
-		maxBounds.y = std::max(p.y, maxBounds.y);
-		maxBounds.z = std::max(p.z, maxBounds.z);
+		minBounds[0] = std::min(p[0], minBounds[0]);
+		minBounds[1] = std::min(p[1], minBounds[1]);
+		minBounds[2] = std::min(p[2], minBounds[2]);
+		maxBounds[0] = std::max(p[0], maxBounds[0]);
+		maxBounds[1] = std::max(p[1], maxBounds[1]);
+		maxBounds[2] = std::max(p[2], maxBounds[2]);
 	}
 
 	return (maxBounds - minBounds).norm();
@@ -91,16 +91,17 @@ void computeEigenvectors2x2(double a, double b, double c, Vector& v1, Vector& v2
 	double lambda1 = (a + c)/2.0 - disc;
 	double lambda2 = (a + c)/2.0 + disc;
 
-	v1 = b < 0.0 ? Vector(-b, a - lambda1) : Vector(b, lambda2 - a);
+	v1 = b < 0.0 ? Vector(-b, a - lambda1, 0.) : Vector(b, lambda2 - a, 0.);
 	double v1Norm = v1.norm();
 	if (v1Norm > 0) v1 /= v1Norm;
-	v2 = Vector(-v1.y, v1.x);
+	v2 = Vector(-v1[1], v1[0], 0.0);
 }
 
 void Mesh::projectUvsToPcaAxis()
 {
 	// compute center of mass
 	Vector cm;
+	cm.setZero();
 	int nUvs = 0;
 	for (FaceCIter f = faces.begin(); f != faces.end(); f++) {
 		if (f->isReal() && !f->fillsHole) {
@@ -125,9 +126,9 @@ void Mesh::projectUvsToPcaAxis()
 		if (f->isReal() && !f->fillsHole) {
 			Vector centroid = centroidUV(f);
 
-			a += centroid.x*centroid.x;
-			b += centroid.x*centroid.y;
-			c += centroid.y*centroid.y;
+			a += centroid[0]*centroid[0];
+			b += centroid[0]*centroid[1];
+			c += centroid[1]*centroid[1];
 		}
 	}
 
@@ -139,7 +140,7 @@ void Mesh::projectUvsToPcaAxis()
 	for (WedgeIter w = wedges().begin(); w != wedges().end(); w++) {
 		if (w->isReal()) {
 			Vector& uv = w->uv;
-			uv = Vector(dot(v1, uv), dot(v2, uv));
+			uv = Vector(dot(v1, uv), dot(v2, uv), 0.);
 			uv += cm;
 		}
 	}
@@ -151,13 +152,13 @@ void Mesh::orientUvsToMinimizeBoundingBox(int nRotations)
 	double maxRotation = M_PI;
 	double minInf = -std::numeric_limits<double>::infinity();
 	double maxInf = std::numeric_limits<double>::infinity();
-	std::vector<Vector> boxMin(nRotations, Vector(maxInf, maxInf));
-	std::vector<Vector> boxMax(nRotations, Vector(minInf, minInf));
+	std::vector<Vector> boxMin(nRotations, Vector(maxInf, maxInf, 0.0));
+	std::vector<Vector> boxMax(nRotations, Vector(minInf, minInf, 0.0));
 
 	std::vector<Vector> rotations(nRotations);
 	for (int i = 0; i < nRotations; i++) {
 		double theta = (maxRotation*i)/nRotations;
-		rotations[i] = Vector(std::cos(theta), std::sin(theta));
+		rotations[i] = Vector(std::cos(theta), std::sin(theta), 0.0);
 	}
 
 	// try all rotations
@@ -166,37 +167,38 @@ void Mesh::orientUvsToMinimizeBoundingBox(int nRotations)
 			const Vector& uv = w->uv;
 
 			for (int i = 0; i < nRotations; i++) {
-				double cosTheta = rotations[i].x;
-				double sinTheta = rotations[i].y;
-				Vector uvRotated(cosTheta*uv.x - sinTheta*uv.y,
-								 sinTheta*uv.x + cosTheta*uv.y);
-				boxMin[i].x = std::min(boxMin[i].x, uvRotated.x);
-				boxMin[i].y = std::min(boxMin[i].y, uvRotated.y);
-				boxMax[i].x = std::max(boxMax[i].x, uvRotated.x);
-				boxMax[i].y = std::max(boxMax[i].y, uvRotated.y);
+				double cosTheta = rotations[i][0];
+				double sinTheta = rotations[i][1];
+				Vector uvRotated(cosTheta*uv[0] - sinTheta*uv[1],
+								 sinTheta*uv[0] + cosTheta*uv[1], 0.0);
+				boxMin[i][0] = std::min(boxMin[i][0], uvRotated[0]);
+				boxMin[i][1] = std::min(boxMin[i][1], uvRotated[1]);
+				boxMax[i][0] = std::max(boxMax[i][0], uvRotated[0]);
+				boxMax[i][1] = std::max(boxMax[i][1], uvRotated[1]);
 			}
 		}
 	}
 
 	// find the best rotation
 	Vector bestRotation;
+	bestRotation.setZero();
 	double minScore = std::numeric_limits<double>::infinity();
 	for (int i = 0; i < nRotations; i++) {
 		Vector extent = boxMax[i] - boxMin[i];
-		if (extent.y < minScore) {
-			minScore = extent.y;
+		if (extent[1] < minScore) {
+			minScore = extent[1];
 			bestRotation = rotations[i];
 		}
 	}
 
 	// apply best rotation
-	double cosTheta = bestRotation.x;
-	double sinTheta = bestRotation.y;
+	double cosTheta = bestRotation[0];
+	double sinTheta = bestRotation[1];
 	for (WedgeIter w = wedges().begin(); w != wedges().end(); w++) {
 		if (w->isReal()) {
 			const Vector& uv = w->uv;
-			Vector uvRotated(cosTheta*uv.x - sinTheta*uv.y,
-							 sinTheta*uv.x + cosTheta*uv.y);
+			Vector uvRotated(cosTheta*uv[0] - sinTheta*uv[1],
+							 sinTheta*uv[0] + cosTheta*uv[1], 0.0);
 			w->uv = uvRotated;
 		}
 	}

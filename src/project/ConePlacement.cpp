@@ -76,27 +76,33 @@ bool ConePlacement::computeTargetAngles(DenseMatrix& C, const DenseMatrix& K,
 	int S = (int)s.size();
 	if (S > 0) {
 		// initialize cone angles
-		DenseMatrix Ks = K.submatrix(s);
-		for (int i = 0; i < S; i++) C(s[i]) = Ks(i);
+		DenseMatrix Ks = submatrix(K, s);
+		for (int i = 0; i < S; i++) C(s[i],0) = Ks(i,0);
 
 		if (n.size() > 0) {
 			// extract submatrices
-			SparseMatrix Ann = A.submatrix(n, n);
-			SparseMatrix Ans = A.submatrix(n, s);
-			DenseMatrix Kn = K.submatrix(n);
+			SparseMatrix Ann = submatrix(A, n);
+			SparseMatrix Ans = submatrix(A, n, s);
+			DenseMatrix Kn = submatrix(K, n);
 
+			// Factorise
+			SparseSolver solver;
+			solver.analyzePattern(Ann);
+			solver.factorize(Ann);
+			if (solver.info() != Eigen::Success) return false;
 			// compute target curvatures
 			for (int i = 0; i < S; i++) {
 				int I = s[i];
 
 				// solve LGn = δn
-				DenseMatrix Gn, Gs(S);
-				Gs(i) = 1;
+				DenseMatrix Gn, Gs(S, 1);
+				Gs(i,0) = 1;
 				DenseMatrix delta = -(Ans*Gs);
-				if (!Ann.L.solvePositiveDefinite(Gn, delta)) return false;
+				Gn = solver.solve(delta);
+				if (solver.info() != Eigen::Success) return false;
 
 				// Cs = Ks + Gn^T Kn
-				C(I) += (Gn.transpose()*Kn)(0);
+				C(I,0) += (Gn.transpose()*Kn)(0);
 			}
 		}
 	}
@@ -114,21 +120,21 @@ void ConePlacement::computeTargetAngles(DenseMatrix& C, const DenseMatrix& u,
 	separateConeIndices(s, n, isCone, index, mesh, true);
 	for (WedgeCIter w: mesh.cutBoundary()) b.emplace_back(index[w]);
 
-	int I = (int)K.nRows();
-	int B = (int)k.nRows();
+	int I = (int)K.rows();
+	int B = (int)k.rows();
 	int S = (int)s.size();
 
 	if (S > 0) {
 		// initialize cone angles
-		DenseMatrix Ks = K.submatrix(s);
+		DenseMatrix Ks = submatrix(K, s);
 		for (int i = 0; i < S; i++) C(s[i]) = Ks(i);
 		for (int i = 0; i < B; i++) C(b[i]) = k(b[i] - I);
 
 		if (n.size() > 0) {
 			// extract submatrices
-			SparseMatrix Asn = A.submatrix(s, n);
-			SparseMatrix Abn = A.submatrix(b, n);
-			DenseMatrix un = u.submatrix(n);
+			SparseMatrix Asn = submatrix(A, s, n);
+			SparseMatrix Abn = submatrix(A, b, n);
+			DenseMatrix un = submatrix(u, n);
 
 			// compute interior cone angles
 			DenseMatrix Cs = -(Asn*un);
@@ -182,20 +188,24 @@ bool ConePlacement::computeScaleFactors(DenseMatrix& u, const DenseMatrix& K,
 	separateConeIndices(s, n, isCone, index, mesh, true);
 
 	// initialize scale factors
-	u = DenseMatrix(K.nRows());
+	u = DenseMatrix(K.rows(), 1);
 
 	if (n.size() > 0) {
 		// extract submatrices
-		DenseMatrix Kn = -K.submatrix(n);
-		SparseMatrix Ann = A.submatrix(n, n);
+		DenseMatrix Kn = submatrix(-K, n);
+		SparseMatrix Ann = submatrix(A, n);
 
 		// compute scale factors
-		DenseMatrix un;
-		if (!Ann.L.solvePositiveDefinite(un, Kn)) return false;
+		SparseSolver solver;
+		solver.analyzePattern(Ann);
+		solver.factorize(Ann);
+		if (solver.info() != Eigen::Success) return false;
+		DenseMatrix un = solver.solve(Kn);
+		if (solver.info() != Eigen::Success) return false;
 
 		// collect scale factors
 		for (int i = 0; i < (int)n.size(); i++) {
-			u(n[i]) = un(i);
+			u(n[i],0) = un(i,0);
 		}
 	}
 
@@ -216,9 +226,13 @@ bool ConePlacement::useCpmsStrategy(int S, VertexData<uint8_t>& isCone,
 
 	for (int i = 0; i < S; i++) {
 		// compute scale factors
-		DenseMatrix u;
 		DenseMatrix rhs = -(K - C);
-		if (!A.L.solvePositiveDefinite(u, rhs)) return false;
+		SparseSolver solver;
+		solver.analyzePattern(A);
+		solver.factorize(A);
+		if (solver.info() != Eigen::Success) return false;
+		DenseMatrix u = solver.solve(rhs);
+		if (solver.info() != Eigen::Success) return false;
 
 		// add vertex with maximum (abs.) scaling to cone set
 		if (!addConeWithLargestScaleFactor(isCone, u, index, mesh)) {
@@ -273,7 +287,7 @@ ConePlacement::ErrorCode ConePlacement::findConesAndPrescribeAngles(
 											std::shared_ptr<BFFData> data, Mesh& mesh)
 {
 	VertexData<uint8_t> isCone(mesh, 0);
-	DenseMatrix C(data->N);
+	DenseMatrix C = DenseMatrix::Zero(data->N, 1);
 	DenseMatrix K = vcat(data->K, data->k);
 	bool success = true;
 
@@ -291,7 +305,7 @@ ConePlacement::ErrorCode ConePlacement::findConesAndPrescribeAngles(
 	}
 
 	// set cone angles
-	coneAngles = C.submatrix(0, data->iN);
+	coneAngles = C.topRows(data->iN);
 	return success ? ConePlacement::ErrorCode::ok :
 					 ConePlacement::ErrorCode::factorizationFailed;
 }

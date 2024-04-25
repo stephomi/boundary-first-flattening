@@ -183,7 +183,7 @@ inline double angle(const Vector& a, const Vector& b, const Vector& c) {
 	Vector v = c - b;
 	v.normalize();
 
-	double theta = atan2(v.y, v.x) - atan2(u.y, u.x);
+	double theta = atan2(v[1], v[0]) - atan2(u[1], u[0]);
 	while (theta >= M_PI) theta -= 2*M_PI;
 	while (theta < -M_PI) theta += 2*M_PI;
 

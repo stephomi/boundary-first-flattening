@@ -16,9 +16,9 @@ bool attemptPacking(int boxLength, double unitsPerInt,
 	// initialize packer
 	int n = (int)rectangleSizes.size();
 	modelMinBounds = Vector(std::numeric_limits<double>::max(),
-							std::numeric_limits<double>::max());
+							std::numeric_limits<double>::max(), 0.0);
 	modelMaxBounds = Vector(std::numeric_limits<double>::lowest(),
-							std::numeric_limits<double>::lowest());
+							std::numeric_limits<double>::lowest(), 0.0);
 	SkylineBinPack packer(boxLength, boxLength, false);
 
 	for (int i = 0; i < n; i++) {
@@ -39,12 +39,12 @@ bool attemptPacking(int boxLength, double unitsPerInt,
 		isUvIslandFlipped[index] = rect.width == rectSize.width ? 0 : 1;
 
 		// compute new centers
-		newUvIslandCenters[index] = Vector(rect.x + rect.width/2.0, rect.y + rect.height/2.0);
+		newUvIslandCenters[index] = Vector(rect.x + rect.width/2.0, rect.y + rect.height/2.0, 0.0);
 		newUvIslandCenters[index] *= unitsPerInt;
-		modelMinBounds.x = std::min((double)rect.x, modelMinBounds.x);
-		modelMinBounds.y = std::min((double)rect.y, modelMinBounds.y);
-		modelMaxBounds.x = std::max((double)(rect.x + rect.width), modelMaxBounds.x);
-		modelMaxBounds.y = std::max((double)(rect.y + rect.height), modelMaxBounds.y);
+		modelMinBounds[0] = std::min((double)rect.x, modelMinBounds[0]);
+		modelMinBounds[1] = std::min((double)rect.y, modelMinBounds[1]);
+		modelMaxBounds[0] = std::max((double)(rect.x + rect.width),  modelMaxBounds[0]);
+		modelMaxBounds[1] = std::max((double)(rect.y + rect.height), modelMaxBounds[1]);
 	}
 
 	return true;
@@ -61,9 +61,9 @@ void BinPacking::pack(const Model& model, double scaling,
 	int n = model.size();
 	double totalArea = 0.0;
 	std::vector<Vector> minBounds(n, Vector(std::numeric_limits<double>::max(),
-											std::numeric_limits<double>::max()));
+											std::numeric_limits<double>::max(), 0.0));
 	std::vector<Vector> maxBounds(n, Vector(std::numeric_limits<double>::lowest(),
-											std::numeric_limits<double>::lowest()));
+											std::numeric_limits<double>::lowest(), 0.0));
 
 	for (int i = 0; i < n; i++) {
 		// compute island radius
@@ -85,22 +85,23 @@ void BinPacking::pack(const Model& model, double scaling,
 			Vector uv = w->uv;
 			if (isSurfaceMappedToSphere[i] == 1) {
 				uv /= radius;
-				uv.x = 0.5 + atan2(uv.z, uv.x)/(2*M_PI);
-				uv.y = 0.5 - asin(uv.y)/M_PI;
+				uv[0] = 0.5 + atan2(uv[2], uv[0])/(2*M_PI);
+				uv[1] = 0.5 - asin(uv[1])/M_PI;
 
 			} else {
 				uv *= radius*lengthRatio;
 			}
 
-			minBounds[i].x = std::min(uv.x, minBounds[i].x);
-			minBounds[i].y = std::min(uv.y, minBounds[i].y);
-			maxBounds[i].x = std::max(uv.x, maxBounds[i].x);
-			maxBounds[i].y = std::max(uv.y, maxBounds[i].y);
+			minBounds[i][0] = std::min(uv[0], minBounds[i][0]);
+			minBounds[i][1] = std::min(uv[1], minBounds[i][1]);
+			maxBounds[i][0] = std::max(uv[0], maxBounds[i][0]);
+			maxBounds[i][1] = std::max(uv[1], maxBounds[i][1]);
 		}
 
-		totalArea += (maxBounds[i].x - minBounds[i].x)*(maxBounds[i].y - minBounds[i].y);
+		totalArea += (maxBounds[i][0] - minBounds[i][0])*(maxBounds[i][1] - minBounds[i][1]);
 	}
 
+	totalArea = std::max(totalArea, 1e-8);
 	// quantize boxes
 	originalUvIslandCenters.resize(n);
 	std::vector<std::pair<RectSize, int>> rectangleSizes(n);
@@ -109,16 +110,16 @@ void BinPacking::pack(const Model& model, double scaling,
 	double unitsPerInt = std::sqrt(totalArea)/(double)maxBoxLength;
 
 	for (int i = 0; i < n; i++) {
-		int minX = static_cast<int>(std::floor(minBounds[i].x/unitsPerInt));
-		int minY = static_cast<int>(std::floor(minBounds[i].y/unitsPerInt));
-		int maxX = static_cast<int>(std::ceil(maxBounds[i].x/unitsPerInt));
-		int maxY = static_cast<int>(std::ceil(maxBounds[i].y/unitsPerInt));
+		int minX = static_cast<int>(std::floor(minBounds[i][0]/unitsPerInt));
+		int minY = static_cast<int>(std::floor(minBounds[i][1]/unitsPerInt));
+		int maxX = static_cast<int>(std::ceil(maxBounds[i][0]/unitsPerInt));
+		int maxY = static_cast<int>(std::ceil(maxBounds[i][1]/unitsPerInt));
 
 		int width = maxX - minX;
 		int height = maxY - minY;
 		rectangleSizes[i] = std::make_pair(RectSize{width, height}, i);
-		originalUvIslandCenters[i].x = (minX + maxX)/2.0;
-		originalUvIslandCenters[i].y = (minY + maxY)/2.0;
+		originalUvIslandCenters[i][0] = (minX + maxX)/2.0;
+		originalUvIslandCenters[i][1] = (minY + maxY)/2.0;
 		originalUvIslandCenters[i] *= unitsPerInt;
 	}
 
