@@ -101,6 +101,7 @@ void BinPacking::pack(const Model& model, double scaling,
 		totalArea += (maxBounds[i].x - minBounds[i].x)*(maxBounds[i].y - minBounds[i].y);
 	}
 
+	totalArea = std::max(totalArea, 1e-8);
 	// quantize boxes
 	originalUvIslandCenters.resize(n);
 	std::vector<std::pair<RectSize, int>> rectangleSizes(n);

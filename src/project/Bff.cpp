@@ -19,40 +19,43 @@ void BFF::processCut(const DenseMatrix& u, DenseMatrix& a, DenseMatrix& g)
 
 	// copy scale factors u of the original surface into a and g that store the interior
 	// and boundary scale factors u (resp.) of the cut surface
-	a = DenseMatrix(data->iN);
-	g = DenseMatrix(data->bN);
+	a = DenseMatrix(data->iN, 1);
+	g = DenseMatrix(data->bN, 1);
 	for (WedgeCIter w = mesh.wedges().begin(); w != mesh.wedges().end(); w++) {
-		if (w->vertex()->onBoundary()) g(data->bIndex[w]) = u(inputSurfaceData->index[w]);
-		else a(data->index[w]) = u(inputSurfaceData->index[w]);
+		if (w->vertex()->onBoundary()) g(data->bIndex[w]) = u(inputSurfaceData->index[w], 0)	;
+		else a(data->index[w], 0) = u(inputSurfaceData->index[w], 0)	;
 	}
 }
 
 void BFF::computeBoundaryScaleFactors(const DenseMatrix& ltilde, DenseMatrix& u) const
 {
-	u = DenseMatrix(data->bN);
+	u = DenseMatrix(data->bN, 1)	;
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = data->bIndex[w];
 		int j = data->bIndex[w->prev()];
 
 		// compute u as a weighted average of piecewise constant scale factors per
 		// boundary edge
-		double uij = std::log(ltilde(i)/data->l(i));
-		double ujk = std::log(ltilde(j)/data->l(j));
-		u(j) = (ltilde(i)*uij + ltilde(j)*ujk)/(ltilde(i) + ltilde(j));
+		double uij = std::log(ltilde(i, 0)	/data->l(i, 0)	);
+		double ujk = std::log(ltilde(j, 0)	/data->l(j, 0)	);
+		u(j, 0)	 = (ltilde(i, 0)	*uij + ltilde(j, 0)	*ujk)/(ltilde(i, 0)	 + ltilde(j, 0)	);
 	}
 }
 
 bool BFF::convertDirichletToNeumann(const DenseMatrix& phi, DenseMatrix& g,
 									DenseMatrix& h, bool surfaceHasCut)
 {
-	DenseMatrix a;
 	DenseMatrix rhs = phi - data->Aib*g;
-	if (!data->Aii.L.solvePositiveDefinite(a, rhs)) {
-		status = ErrorCode::factorizationFailed;
-		return false;
-	}
-	if (surfaceHasCut) processCut(vcat(a, g), a, g);
+	// Factorise
+	SparseSolver solver;
+	solver.analyzePattern(data->Aii);
+	solver.factorize(data->Aii);
+	if (solver.info() != Eigen::Success) return false;
+	// Solve
+	DenseMatrix a = solver.solve(rhs);
+	if (solver.info() != Eigen::Success) return false;
 
+	if (surfaceHasCut) processCut(vcat(a, g), a, g);
 	h = -(data->Aib.transpose()*a + data->Abb*g);
 	return true;
 }
@@ -60,27 +63,31 @@ bool BFF::convertDirichletToNeumann(const DenseMatrix& phi, DenseMatrix& g,
 bool BFF::convertNeumannToDirichlet(const DenseMatrix& phi, const DenseMatrix& h,
 									DenseMatrix& g)
 {
-	DenseMatrix a;
 	DenseMatrix rhs = vcat(phi, -h);
-	if (!data->A.L.solvePositiveDefinite(a, rhs)) {
-		status = ErrorCode::factorizationFailed;
-		return false;
-	}
+	// Factorise
+	SparseSolver solver;
+	solver.analyzePattern(data->A);
+	solver.factorize(data->A);
+	if (solver.info() != Eigen::Success) return false;
+	// Solve
+	DenseMatrix a = solver.solve(rhs);
+	if (solver.info() != Eigen::Success) return false;
 
-	g = a.submatrix(data->iN, data->N);
+	// boundary block, i.e. the last bN rows of a
+	g = a.block(data->iN, 0, data->N - data->iN, 1);
 	return true;
 }
 
 double BFF::computeTargetBoundaryLengths(const DenseMatrix& u, DenseMatrix& lstar) const
 {
 	double sum = 0.0;
-	lstar = DenseMatrix(data->bN);
+	lstar = DenseMatrix(data->bN, 1)	;
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = data->bIndex[w];
 		int j = data->bIndex[w->prev()];
 
-		lstar(i) = exp(0.5*(u(i) + u(j)))*data->l(i);
-		sum += lstar(i);
+		lstar(i, 0) = exp(0.5*(u(i, 0) + u(j, 0)))*data->l(i);
+		sum += lstar(i, 0)	;
 	}
 
 	return sum;
@@ -90,13 +97,13 @@ double BFF::computeTargetDualBoundaryLengths(const DenseMatrix& lstar,
 											 DenseMatrix& ldual) const
 {
 	double sum = 0.0;
-	ldual = DenseMatrix(data->bN);
+	ldual = DenseMatrix(data->bN, 1)	;
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = data->bIndex[w];
 		int j = data->bIndex[w->prev()];
 
-		ldual(j) = 0.5*(lstar(i) + lstar(j));
-		sum += ldual(j);
+		ldual(j, 0)	 = 0.5*(lstar(i, 0)	 + lstar(j, 0)	);
+		sum += ldual(j, 0)	;
 	}
 
 	return sum;
@@ -105,12 +112,12 @@ double BFF::computeTargetDualBoundaryLengths(const DenseMatrix& lstar,
 double BFF::computeTargetBoundaryLengthsUV(DenseMatrix& lstar) const
 {
 	double sum = 0.0;
-	lstar = DenseMatrix(data->bN);
+	lstar = DenseMatrix(data->bN, 1)	;
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = data->bIndex[w];
 
-		lstar(i) = (w->uv - w->prev()->uv).norm();
-		sum += lstar(i);
+		lstar(i, 0)	 = (w->uv - w->prev()->uv).norm();
+		sum += lstar(i, 0)	;
 	}
 
 	return sum;
@@ -119,15 +126,15 @@ double BFF::computeTargetBoundaryLengthsUV(DenseMatrix& lstar) const
 double BFF::computeTargetDualBoundaryLengthsUV(DenseMatrix& ldual) const
 {
 	double sum = 0.0;
-	ldual = DenseMatrix(data->bN);
+	ldual = DenseMatrix(data->bN, 1)	;
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int j = data->bIndex[w->prev()];
 
 		Vector uvi = w->nextWedge()->uv;
 		Vector uvj = w->uv;
 		Vector uvk = w->prev()->uv;
-		ldual(j) = 0.5*((uvj - uvi).norm() + (uvk - uvj).norm());
-		sum += ldual(j);
+		ldual(j, 0)	 = 0.5*((uvj - uvi).norm() + (uvk - uvj).norm());
+		sum += ldual(j, 0)	;
 	}
 
 	return sum;
@@ -141,7 +148,7 @@ void BFF::closeCurvatures(DenseMatrix& ktilde) const
 		int i = data->bIndex[w];
 
 		L += data->l(i);
-		totalAngle += ktilde(i);
+		totalAngle += ktilde(i, 0)	;
 	}
 
 	for (WedgeCIter w: mesh.cutBoundary()) {
@@ -149,7 +156,7 @@ void BFF::closeCurvatures(DenseMatrix& ktilde) const
 		int j = data->bIndex[w->prev()];
 
 		double ldual = 0.5*(data->l(i) + data->l(j));
-		ktilde(j) += (ldual/L)*(2*M_PI - totalAngle);
+		ktilde(j, 0)	 += (ldual/L)*(2*M_PI - totalAngle);
 	}
 }
 
@@ -199,35 +206,37 @@ void BFF::closeLengths(const DenseMatrix& lstar, const DenseMatrix& Ttilde,
 	}
 
 	// accumulate the diagonal entries of the mass matrix and the tangents
-	DenseMatrix L(eN), diagNinv(eN), T(2, eN);
+	DenseMatrix L = DenseMatrix::Zero(eN, 1);
+	DenseMatrix diagNinv  = DenseMatrix::Zero(eN, 1);
+	DenseMatrix T = DenseMatrix::Zero(2, eN);
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = data->bIndex[w];
 		int ii = indexMap[w->halfEdge()->next()->edge()];
 
-		L(ii) = lstar(i);
+		L(ii, 0)	 = lstar(i, 0)	;
 		diagNinv(ii) += 1.0/data->l(i);
 		T(0, ii) += Ttilde(0, i);
 		T(1, ii) += Ttilde(1, i);
 	}
 
 	for (int i = 0; i < eN; i++) {
-		diagNinv(i) = 1.0/diagNinv(i);
+		diagNinv(i, 0)	 = 1.0/diagNinv(i, 0)	;
 	}
 
 	// modify the target lengths to ensure gamma closes
-	SparseMatrix Ninv = SparseMatrix::diag(diagNinv);
+	auto Ninv = diag(diagNinv);
 	DenseMatrix TT = T.transpose();
 	DenseMatrix m = T*(Ninv*TT);
 	invert2x2(m);
 	L -= Ninv*(TT*(m*(T*L)));
 
 	// copy the modified lengths into ltilde
-	ltilde = DenseMatrix(data->bN);
+	ltilde = DenseMatrix(data->bN, 1)	;
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = data->bIndex[w];
 		int ii = indexMap[w->halfEdge()->next()->edge()];
 
-		ltilde(i) = L(ii);
+		ltilde(i, 0)	 = L(ii, 0)	;
 	}
 }
 
@@ -240,7 +249,7 @@ void BFF::constructBestFitCurve(const DenseMatrix& lstar, const DenseMatrix& kti
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = data->bIndex[w];
 
-		phi += ktilde(i);
+		phi += ktilde(i, 0)	;
 		Ttilde(0, i) = cos(phi);
 		Ttilde(1, i) = sin(phi);
 	}
@@ -252,26 +261,29 @@ void BFF::constructBestFitCurve(const DenseMatrix& lstar, const DenseMatrix& kti
 	// compute gamma as cumulative sum of products ltilde*Ttilde
 	double re = 0.0;
 	double im = 0.0;
-	gammaRe = DenseMatrix(data->bN);
-	gammaIm = DenseMatrix(data->bN);
+	gammaRe = DenseMatrix::Zero(data->bN, 1)	;
+	gammaIm = DenseMatrix::Zero(data->bN, 1)	;
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = data->bIndex[w];
 
-		gammaRe(i) = re;
-		gammaIm(i) = im;
-		re += ltilde(i)*Ttilde(0, i);
-		im += ltilde(i)*Ttilde(1, i);
+		gammaRe(i, 0)	 = re;
+		gammaIm(i, 0)	 = im;
+		re += ltilde(i, 0)	*Ttilde(0, i);
+		im += ltilde(i, 0)	*Ttilde(1, i);
 	}
 }
 
 bool BFF::extendHarmonic(const DenseMatrix& g, DenseMatrix& h)
 {
-	DenseMatrix a;
 	DenseMatrix rhs = -(data->Aib*g);
-	if (!data->Aii.L.solvePositiveDefinite(a, rhs)) {
-		status = ErrorCode::factorizationFailed;
-		return false;
-	}
+	// Factorise
+	SparseSolver solver;
+	solver.analyzePattern(data->Aii);
+	solver.factorize(data->Aii);
+	if (solver.info() != Eigen::Success) return false;
+	// Solve
+	DenseMatrix a = solver.solve(rhs);
+	if (solver.info() != Eigen::Success) return false;
 
 	h = vcat(a, g);
 	return true;
@@ -285,19 +297,30 @@ bool BFF::extendCurve(const DenseMatrix& gammaRe, const DenseMatrix& gammaIm,
 
 	if (conjugate) {
 		// conjugate imaginary component of gamma
-		DenseMatrix h(data->N);
+		DenseMatrix h = DenseMatrix::Zero(data->N, 1)	;
 		for (WedgeCIter w: mesh.cutBoundary()) {
 			int i = data->index[w->prev()];
 			int j = data->index[w];
 			int k = data->index[w->nextWedge()];
 
-			h(j) = 0.5*(a(k) - a(i));
+			h(j, 0)	 = 0.5*(a(k, 0)	 - a(i, 0)	);
 		}
+		double* hdata = h.data();
 
-		if (!data->A.L.solvePositiveDefinite(b, h)) {
-			status = ErrorCode::factorizationFailed;
-			return false;
-		}
+		// Factorise
+		SparseSolver solver;
+		solver.analyzePattern(data->A);
+		solver.factorize(data->A);
+
+		int* ai = (data->A).innerIndexPtr();
+		int* aj = (data->A).outerIndexPtr();
+		double* v = (data->A).valuePtr();
+
+		if (solver.info() != Eigen::Success) return false;
+		// Solve
+		b = solver.solve(h);
+		double* bdata = b.data();
+		if (solver.info() != Eigen::Success) return false;
 
 	} else {
 		// extend imaginary component of gamma
@@ -342,15 +365,17 @@ void BFF::normalize()
 bool BFF::flatten(const DenseMatrix& u, const DenseMatrix& ktilde, bool conjugate)
 {
 	// compute target lengths
-	DenseMatrix lstar;
+	DenseMatrix lstar = DenseMatrix::Zero(1, 1)	;
 	computeTargetBoundaryLengths(u, lstar);
 
 	// construct best fit curve gamma
-	DenseMatrix gammaRe, gammaIm;
+	DenseMatrix gammaRe = DenseMatrix::Zero(1, 1);
+	DenseMatrix gammaIm = DenseMatrix::Zero(1, 1);
 	constructBestFitCurve(lstar, ktilde, gammaRe, gammaIm);
 
 	// extend
-	DenseMatrix flatteningRe, flatteningIm;
+	DenseMatrix flatteningRe = DenseMatrix::Zero(1, 1);
+	DenseMatrix flatteningIm = DenseMatrix::Zero(1, 1);
 	if (!extendCurve(gammaRe, gammaIm, flatteningRe, flatteningIm, conjugate)) return false;
 
 	// set uv coordinates
@@ -375,7 +400,7 @@ bool BFF::flatten(DenseMatrix& target, bool givenScaleFactors)
 		meanScaling = target.mean();
 
 		// compute normal derivative of boundary scale factors
-		DenseMatrix dudn;
+		DenseMatrix dudn = DenseMatrix::Zero(1, 1)	;
 		if (!convertDirichletToNeumann(-data->K, target, dudn)) return false;
 
 		// compute target boundary curvatures
@@ -408,7 +433,7 @@ bool BFF::flattenWithCones(const DenseMatrix& C, bool surfaceHasNewCut)
 
 	// set boundary scale factors to zero. Note: scale factors can be assigned values
 	// other than zero
-	DenseMatrix u(data->bN);
+	DenseMatrix u = DenseMatrix::Zero(data->bN, 1);
 
 	// compute normal derivative of boundary scale factors
 	DenseMatrix dudn;
@@ -427,11 +452,15 @@ bool BFF::flattenWithCones(const DenseMatrix& C, bool surfaceHasNewCut)
 
 bool BFF::flattenToDisk()
 {
-	DenseMatrix u(data->bN), ktilde(data->bN);
-	for (int iter = 0; iter < 10; iter++) {
+	DenseMatrix u = DenseMatrix::Zero(data->bN, 1), ktilde = DenseMatrix::Zero(data->bN, 1);
+	const int nIter = 10;
+	for (int iter = 0; iter < nIter; iter++) {
+		// one solve per poll: coarse, but the factorization above is the uninterruptible part
+		if (gProgress && !gProgress(float(iter)/(nIter + 1))) return false;
+
 		// compute target dual boundary edge lengths
 		double L;
-		DenseMatrix lstar, ldual;
+		DenseMatrix lstar(1, 1)	, ldual(1, 1)	;
 		computeTargetBoundaryLengths(u, lstar);
 		L = computeTargetDualBoundaryLengths(lstar, ldual);
 
@@ -447,6 +476,7 @@ bool BFF::flattenToDisk()
 	}
 
 	// flatten with compatible target scale factors u and curvatures ktilde
+	if (gProgress && !gProgress(float(nIter)/(nIter + 1))) return false;
 	return flatten(u, ktilde, false);
 }
 
@@ -493,8 +523,8 @@ bool BFF::flattenToShape(const std::vector<Vector>& gamma)
 		cumulativeLengthGamma[i] = L;
 	}
 
-	DenseMatrix u(nB);
-	DenseMatrix kprev(nB);
+	DenseMatrix u = DenseMatrix::Zero(nB, 1);
+	DenseMatrix kprev = DenseMatrix::Zero(nB, 1);
 	DenseMatrix ktilde = data->k;
 	for (int iter = 0; iter < 10; iter++) {
 		// compute target boundary edge lengths
@@ -512,7 +542,7 @@ bool BFF::flattenToShape(const std::vector<Vector>& gamma)
 
 			double t = L*s/S;
 			index = sample(gamma, cumulativeLengthGamma, t, index, z[i]);
-			s += lstar(i);
+			s += lstar(i, 0)	;
 		}
 
 		// compute ktilde, which is the (integrated) curvature of the sampled curve z
@@ -522,9 +552,9 @@ bool BFF::flattenToShape(const std::vector<Vector>& gamma)
 			int j = data->bIndex[w];
 			int k = data->bIndex[w->prev()];
 
-			kprev(j) = ktilde(j); // store the previous solution for later use
-			ktilde(j) = angle(z[i], z[j], z[k]);
-			sum += ktilde(j);
+			kprev(j, 0)	 = ktilde(j, 0)	; // store the previous solution for later use
+			ktilde(j, 0)	 = angle(z[i], z[j], z[k]);
+			sum += ktilde(j, 0)	;
 		}
 
 		// flip signs in case gamma has clockwise orientation
@@ -535,7 +565,7 @@ bool BFF::flattenToShape(const std::vector<Vector>& gamma)
 		for (WedgeCIter w: mesh.cutBoundary()) {
 			int i = data->bIndex[w];
 
-			ktilde(i) = 0.5*(ktilde(i) + kprev(i));
+			ktilde(i, 0)	 = 0.5*(ktilde(i, 0)	 + kprev(i, 0)	);
 		}
 
 		if (iter == 0) closeCurvatures(ktilde);
@@ -604,7 +634,7 @@ void BFF::centerMobius()
 
 		// build Jacobian
 		DenseMatrix J(3, 3);
-		DenseMatrix Id = DenseMatrix::identity(3, 3);
+		DenseMatrix Id = DenseMatrix::Identity(3, 3);
 
 		for (FaceCIter f = mesh.faces.begin(); f != mesh.faces.end(); f++) {
 			for (int i = 0; i < 3; i++) {
@@ -806,7 +836,7 @@ void BFFData::computeEdgeLengths(EdgeData<double>& edgeLengths)
 	}
 
 	// set boundary edge lengths
-	l = DenseMatrix(bN);
+	l = DenseMatrix(bN, 1);
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = bIndex[w];
 
@@ -817,7 +847,7 @@ void BFFData::computeEdgeLengths(EdgeData<double>& edgeLengths)
 void BFFData::computeIntegratedCurvatures(const EdgeData<double>& edgeLengths)
 {
 	// compute integrated gaussian curvature
-	K = DenseMatrix(iN);
+	K = DenseMatrix(iN, 1)	;
 	for (VertexCIter v = mesh.vertices.begin(); v != mesh.vertices.end(); v++) {
 		if (!v->onBoundary()) {
 			int i = index[v->wedge()];
@@ -838,7 +868,7 @@ void BFFData::computeIntegratedCurvatures(const EdgeData<double>& edgeLengths)
 	}
 
 	// compute integrated geodesic curvature
-	k = DenseMatrix(bN);
+	k = DenseMatrix(bN, 1)	;
 	for (WedgeCIter w: mesh.cutBoundary()) {
 		int i = bIndex[w];
 		double angleSum = 0.0;
@@ -860,7 +890,10 @@ void BFFData::computeIntegratedCurvatures(const EdgeData<double>& edgeLengths)
 
 void BFFData::buildLaplace(const EdgeData<double>& edgeLengths)
 {
-	Triplet T(N, N);
+	// Triplet T(N, N);
+	using Triplet = Eigen::Triplet<double>;
+	std::vector<Triplet> T;
+	T.reserve(mesh.faces.size()*3);
 	for (FaceCIter f = mesh.faces.begin(); f != mesh.faces.end(); f++) {
 		if (f->isReal()) {
 			HalfEdgeCIter he = f->halfEdge();
@@ -874,18 +907,29 @@ void BFFData::buildLaplace(const EdgeData<double>& edgeLengths)
 				double lki = edgeLengths[prev->edge()];
 				double w = 0.5*halfEdgeCotan(lij, ljk, lki);
 
-				T.add(i, i, w);
-				T.add(j, j, w);
-				T.add(i, j, -w);
-				T.add(j, i, -w);
+				// T.add(i, i, w);
+				// T.add(j, j, w);
+				// T.add(i, j, -w);
+				// T.add(j, i, -w);
+
+				T.push_back(Triplet(i, i, w));
+				T.push_back(Triplet(j, j, w));
+				T.push_back(Triplet(i, j, -w));
+				T.push_back(Triplet(j, i, -w));
 
 				he = next;
 			} while (he != f->halfEdge());
 		}
 	}
 
-	A = SparseMatrix(T);
-	A += SparseMatrix::identity(N, N)*1e-8;
+	A = SparseMatrix(N,N);
+	A.setFromTriplets(T.begin(), T.end());
+	A.makeCompressed();
+
+	// add a dummy param later to diagonals
+	SparseMatrix I(N, N);
+	I.setIdentity();
+	A += I * 1e-8;
 }
 
 void BFFData::init()
@@ -902,9 +946,14 @@ void BFFData::init()
 
 	// build laplace matrix and extract submatrices
 	buildLaplace(edgeLengths);
-	Aii = A.submatrix(0, iN, 0, iN);
-	Aib = A.submatrix(0, iN, iN, N);
-	Abb = A.submatrix(iN, N, iN, N);
+
+	Aii = A.topRows(iN).leftCols(iN);
+	Aib = A.topRows(iN).rightCols(N - iN);
+	Abb = A.bottomRows(N - iN).rightCols(N - iN);
+
+	Aii.makeCompressed();
+	Aib.makeCompressed();
+	Abb.makeCompressed();
 }
 
 } // namespace bff

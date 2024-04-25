@@ -1,10 +1,12 @@
 #pragma once
 
 #include "bff/mesh/MeshData.h"
-#include "bff/linear-algebra/Cholesky.h"
+#include "bff/linear-algebra/Solver.h"
 #include <memory>
 
 namespace bff {
+
+inline std::function<bool(float)> gProgress;
 
 class BFFData;
 
